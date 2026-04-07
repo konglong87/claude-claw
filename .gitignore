@@ -1,0 +1,29 @@
+node_modules
+.DS_Store
+dist
+coverage
+.env
+*.log
+*.pid
+.idea
+.vscode
+*.suo
+*.lock
+bun.lock
+background-daemon.log
+websocket-server.log
+start-*.sh
+
+# 配置文件（包含敏感信息）
+config.yaml
+
+# Claude 内部文件
+.claude/scheduled_tasks.json
+
+# Worktrees for isolated development
+.worktrees/
+
+CLAUDE.md
+
+
+docs/
