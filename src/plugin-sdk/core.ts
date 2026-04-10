@@ -20,6 +20,8 @@ export type RuntimeEnv = {
 export type PluginRuntime = {
   logger: PluginLogger
   env: RuntimeEnv
+  channel?: any  // ChannelRuntime for message handling
+  reply?: any    // ReplyRuntime for sending replies
 }
 
 export type PluginLogger = {
