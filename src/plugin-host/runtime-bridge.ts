@@ -5,7 +5,7 @@
 
 import type { ClaudeWebSocketServer } from '../websocket/server.js'
 import type { ChannelRuntime, ReplyRuntime, PluginLogger, InboundEnvelope, ReplyEnvelope } from '../plugin-sdk/index.js'
-import { createChannelRuntime, createReplyRuntime } from '../plugin-sdk/index.js'
+import { createChannelRuntime, createReplyRuntime, createStreamingRuntime, StreamingRuntime } from '../plugin-sdk/index.js'
 
 export interface RuntimeBridgeConfig {
   wsServer: ClaudeWebSocketServer
@@ -15,12 +15,14 @@ export interface RuntimeBridgeConfig {
 export class RuntimeBridge {
   private channelRuntime: ChannelRuntime
   private replyRuntime: ReplyRuntime
+  private streamingRuntime: StreamingRuntime
   private wsServer: ClaudeWebSocketServer
 
   constructor(config: RuntimeBridgeConfig) {
     this.wsServer = config.wsServer
     this.channelRuntime = createChannelRuntime(config.logger)
     this.replyRuntime = createReplyRuntime(config.logger, this.sendToFeishu.bind(this))
+    this.streamingRuntime = createStreamingRuntime(config.logger)
 
     this.setupBridge()
   }
@@ -58,6 +60,10 @@ export class RuntimeBridge {
 
   getReplyRuntime(): ReplyRuntime {
     return this.replyRuntime
+  }
+
+  getStreamingRuntime(): StreamingRuntime {
+    return this.streamingRuntime
   }
 }
 

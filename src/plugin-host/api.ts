@@ -51,7 +51,8 @@ export function createPluginApi(params: CreatePluginApiParams): OpenClawPluginAp
             logger,
             env: {},
             channel: runtimeBridge.getChannelRuntime(),
-            reply: runtimeBridge.getReplyRuntime()
+            reply: runtimeBridge.getReplyRuntime(),
+            streaming: runtimeBridge.getStreamingRuntime()
           },
           setStatus: (status) => {
             logger.info(`[PluginApi] Gateway status: ${JSON.stringify(status)}`)
