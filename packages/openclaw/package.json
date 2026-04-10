@@ -1,0 +1,12 @@
+{
+  "name": "openclaw",
+  "version": "1.0.0",
+  "description": "OpenClaw Plugin SDK",
+  "type": "module",
+  "main": "plugin-sdk/index.ts",
+  "exports": {
+    ".": "./plugin-sdk/index.ts",
+    "./plugin-sdk": "./plugin-sdk/index.ts",
+    "./plugin-sdk/*": "./plugin-sdk/*.ts"
+  }
+}

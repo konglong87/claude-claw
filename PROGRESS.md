@@ -23,3 +23,48 @@
 - 修复了包的 exports 配置问题（原 package.json 引用不存在的 dist/ 目录）
 
 **下一步**: Phase 2 将实现消息处理 Runtime Bridge
+
+## Phase 2: 消息收发流水线 ✅
+
+- [x] 添加消息处理SDK模块
+- [x] 实现Runtime Bridge
+- [x] 实现registerChannel完整逻辑
+- [x] 更新feishu-bot启动逻辑
+- [x] 测试Phase 2消息流
+
+**里程碑**: 飞书消息接收 → Claude处理 → 回复飞书
+
+**Phase 2 测试结果**:
+- ✅ WebSocket Server 启动成功
+- ✅ PluginHost 创建成功
+- ✅ openclaw-lark 插件加载成功
+- ✅ 飞书 Channel 注册成功
+- ✅ Gateway 启动流程执行
+- ⚠️ Gateway 启动失败: 缺少真实飞书凭证（预期行为）
+
+**新增SDK模块**:
+- account-id.ts
+- agent-runtime.ts
+- allow-from.ts
+- channel-feedback.ts
+- channel-runtime.ts
+- channel-status.ts
+- config-runtime.ts
+- inbound-envelope.ts
+- param-readers.ts
+- reply-history.ts
+- reply-runtime.ts
+- routing.ts
+- setup.ts
+- temp-path.ts
+- tool-send.ts
+- zalouser.ts
+
+**关键改进**:
+- 创建 packages/openclaw workspace 包，解决 `openclaw/plugin-sdk` 依赖问题
+- 修复 @larksuite/openclaw-lark 包的 exports 配置（指向根目录而非 dist/）
+- 在 bun 缓存目录创建 openclaw 包 symlink
+- 实现 emptyPluginConfigSchema() 函数
+- 添加 registerCli 和 registerCommand 占位符方法
+
+**下一步**: Phase 3 将实现流式卡片功能

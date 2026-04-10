@@ -1,0 +1,1 @@
+../../../src/plugin-sdk/setup.ts

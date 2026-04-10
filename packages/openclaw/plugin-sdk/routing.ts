@@ -1,0 +1,1 @@
+../../../src/plugin-sdk/routing.ts

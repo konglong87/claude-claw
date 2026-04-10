@@ -91,8 +91,21 @@ export type ChannelOutboundAdapter = {
 export type OpenClawPluginApi = {
   registerChannel: (params: { plugin: ChannelPlugin }) => void
   registerTool: (tool: any) => void
+  registerCli?: (fn: any) => void
+  registerCommand?: (command: any) => void
   on: (event: string, handler: any) => void
   config: OpenClawConfig
   runtime: PluginRuntime
   logger: PluginLogger
+}
+
+/**
+ * Empty plugin config schema (placeholder)
+ */
+export function emptyPluginConfigSchema(): any {
+  return {
+    type: 'object',
+    properties: {},
+    required: []
+  }
 }

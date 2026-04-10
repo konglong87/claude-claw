@@ -69,6 +69,14 @@ export function createPluginApi(params: CreatePluginApiParams): OpenClawPluginAp
       logger.info('[PluginApi] registerTool called (not implemented in Phase 2)')
     },
 
+    registerCli: (fn) => {
+      logger.info('[PluginApi] registerCli called (not implemented in Phase 2)')
+    },
+
+    registerCommand: (command) => {
+      logger.info(`[PluginApi] registerCommand called for ${command.name} (not implemented in Phase 2)`)
+    },
+
     on: (event, handler) => {
       logger.info(`[PluginApi] on('${event}') called (not implemented in Phase 2)`)
     }
