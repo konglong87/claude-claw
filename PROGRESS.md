@@ -68,3 +68,22 @@
 - 添加 registerCli 和 registerCommand 占位符方法
 
 **下一步**: Phase 3 将实现流式卡片功能
+
+## Phase 3: 流式卡片输出 ✅
+
+- [x] 添加流式卡片SDK模块
+- [x] 集成流式运行时到Bridge
+- [x] 测试流式卡片
+
+**里程碑**: 实时流式卡片输出和状态更新
+
+**Phase 3 测试结果**:
+- ✅ StreamingCard 接口定义完成
+- ✅ StreamingRuntime 实现完成
+- ✅ 集成到 RuntimeBridge
+- ✅ 集成到 Plugin API
+
+**新增SDK模块**:
+- channel-streaming.ts (StreamingCard, StreamingRuntime, createStreamingRuntime)
+
+**下一步**: Phase 4 将实现工具调用功能
