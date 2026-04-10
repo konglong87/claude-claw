@@ -38,6 +38,8 @@ import { getConfig, printConfig } from './config/loader'
 import { ClaudeWebSocketServer } from './websocket/server'
 import { FeishuWebSocketClient } from './feishu/websocket-client'
 import { feishuLog, feishuError } from './feishu/log.js'
+import { createPluginApi } from './plugin-host/api.js'
+import { loadOpenclawLarkPlugin } from './plugin-host/loader.js'
 
 class FeishuBotLauncher {
   private config = getConfig()
@@ -95,6 +97,43 @@ class FeishuBotLauncher {
     this.setupShutdown()
   }
 
+  async startWithPlugin() {
+    feishuLog('================================================================')
+    feishuLog('  飞书机器人启动器（OpenClaw 插件模式）')
+    feishuLog('================================================================')
+    feishuLog('')
+
+    // 1. 创建 Plugin API
+    feishuLog('1️⃣ 创建 PluginHost...')
+    const api = createPluginApi({
+      config: this.config,
+      logger: {
+        info: (msg) => feishuLog(msg),
+        error: (msg) => feishuError(msg),
+        warn: (msg) => feishuLog(`[WARN] ${msg}`)
+      }
+    })
+    feishuLog('   ✅ PluginHost 已创建')
+    feishuLog('')
+
+    // 2. 加载 openclaw-lark 插件
+    feishuLog('2️⃣ 加载 openclaw-lark 插件...')
+    try {
+      await loadOpenclawLarkPlugin(api)
+      feishuLog('   ✅ openclaw-lark 插件已加载')
+      feishuLog('')
+    } catch (error) {
+      feishuError(`   ❌ 插件加载失败: ${error}`)
+      return
+    }
+
+    // 3. 显示连接信息
+    this.showConnectionInfo()
+
+    // 4. 监听退出信号
+    this.setupShutdown()
+  }
+
   showConnectionInfo() {
     feishuLog('================================================================')
     feishuLog('  ✅ 飞书机器人已启动！')
@@ -141,22 +180,13 @@ class FeishuBotLauncher {
 
 // 启动
 if (import.meta.main) {
-  // 1. 启用配置系统（必须在访问配置之前）
   enableConfigs()
-
-  // 2. ✅ 加载环境变量（从 ~/.claude/settings.json 读取认证信息）
-  // 这会加载 ANTHROPIC_AUTH_TOKEN、ANTHROPIC_BASE_URL 等环境变量
   applySafeConfigEnvironmentVariables()
 
-  feishuLog('[飞书启动器] 环境变量已加载:')
-  feishuLog('  - ANTHROPIC_AUTH_TOKEN:', process.env.ANTHROPIC_AUTH_TOKEN ? '已设置 ✅' : '未设置 ❌')
-  feishuLog('  - ANTHROPIC_BASE_URL:', process.env.ANTHROPIC_BASE_URL || '未设置')
-  feishuLog('  - ANTHROPIC_MODEL:', process.env.ANTHROPIC_MODEL || '未设置')
-  feishuLog('')
-
-  // 3. 创建启动器
   const launcher = new FeishuBotLauncher()
-  launcher.start()
+
+  // 使用新的插件模式启动
+  launcher.startWithPlugin()
 }
 
 export { FeishuBotLauncher }
