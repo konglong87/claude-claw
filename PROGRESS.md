@@ -87,3 +87,28 @@
 - channel-streaming.ts (StreamingCard, StreamingRuntime, createStreamingRuntime)
 
 **下一步**: Phase 4 将实现工具调用功能
+
+## Phase 4: 工具与OAuth ✅
+
+- [x] 添加工具SDK模块
+- [x] 实现registerTool
+- [x] 添加OAuth运行时
+- [x] 测试工具调用
+
+**里程碑**: 完整的飞书文档读写能力、OAuth授权
+
+---
+
+## 项目完成 ✅
+
+所有4个Phase已完成，完全兼容 @larksuite/openclaw-lark 插件。
+
+### 验收标准
+
+- [x] 支持 openclaw-lark 插件完整注册
+- [x] 飞书消息接收和回复
+- [x] 流式卡片输出（thinking → generating → complete）
+- [x] OAuth用户授权流程
+- [x] 飞书文档读写能力（通过工具）
+- [x] 多维表格操作（通过工具）
+- [x] 日历/任务管理（通过工具）
