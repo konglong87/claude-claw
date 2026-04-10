@@ -103,21 +103,29 @@ class FeishuBotLauncher {
     feishuLog('================================================================')
     feishuLog('')
 
-    // 1. 创建 Plugin API
-    feishuLog('1️⃣ 创建 PluginHost...')
+    // 1. 启动 Claude Code WebSocket Server
+    feishuLog('1️⃣ 启动 Claude Code WebSocket Server...')
+    this.wsServer = new ClaudeWebSocketServer()
+    this.wsServer.start()
+    feishuLog('   ✅ WebSocket Server 已启动')
+    feishuLog('')
+
+    // 2. 创建 Plugin API
+    feishuLog('2️⃣ 创建 PluginHost...')
     const api = createPluginApi({
       config: this.config,
+      wsServer: this.wsServer,
       logger: {
-        info: (msg) => feishuLog(msg),
-        error: (msg) => feishuError(msg),
-        warn: (msg) => feishuLog(`[WARN] ${msg}`)
+        info: (msg) => feishuLog(`   ${msg}`),
+        error: (msg) => feishuError(`   ${msg}`),
+        warn: (msg) => feishuLog(`   [WARN] ${msg}`)
       }
     })
     feishuLog('   ✅ PluginHost 已创建')
     feishuLog('')
 
-    // 2. 加载 openclaw-lark 插件
-    feishuLog('2️⃣ 加载 openclaw-lark 插件...')
+    // 3. 加载 openclaw-lark 插件
+    feishuLog('3️⃣ 加载 openclaw-lark 插件...')
     try {
       await loadOpenclawLarkPlugin(api)
       feishuLog('   ✅ openclaw-lark 插件已加载')
@@ -127,10 +135,10 @@ class FeishuBotLauncher {
       return
     }
 
-    // 3. 显示连接信息
+    // 4. 显示连接信息
     this.showConnectionInfo()
 
-    // 4. 监听退出信号
+    // 5. 监听退出信号
     this.setupShutdown()
   }
 
