@@ -54,6 +54,7 @@
     "docs:dev": "npx mintlify dev"
   },
   "dependencies": {
+    "@larksuite/openclaw-lark": "^2026.4.7",
     "@larksuiteoapi/node-sdk": "^1.60.0",
     "cli-table": "^0.3.11",
     "dingtalk-stream": "^2.1.6-beta.1",
