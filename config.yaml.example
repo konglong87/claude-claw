@@ -172,3 +172,25 @@ env:
 #    - config.yaml 文件已加入 .gitignore，不会被提交到 Git
 #    - 生产环境建议使用专用的密钥管理服务
 #
+
+# ========================================
+# OpenClaw 兼容配置（新格式）
+# ========================================
+
+channels:
+  feishu:
+    - app_id: "cli_xxxxxxxxxxxx"
+      app_secret: "xxxxxxxxxxxxxxxx"
+      enabled: true
+      connection_mode: "websocket"
+      # 可选配置
+      encrypt_key: ""
+      verification_token: ""
+
+# Claude API 配置
+claude:
+  model: "claude-sonnet-4-6"
+  api_key: "sk-ant-xxx"
+  api_base: "https://api.anthropic.com"
+  max_tokens: 4096
+  temperature: 0.7
