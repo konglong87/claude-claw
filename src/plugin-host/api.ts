@@ -4,6 +4,7 @@
  */
 
 import type { OpenClawPluginApi, OpenClawConfig, PluginRuntime, PluginLogger } from '../plugin-sdk/core.js'
+import { createToolRuntime, ToolRuntime } from '../plugin-sdk/index.js'
 import { getPluginRegistry } from './registry.js'
 import { createRuntimeBridge, RuntimeBridge } from './runtime-bridge.js'
 import type { ClaudeWebSocketServer } from '../websocket/server.js'
@@ -25,11 +26,19 @@ export function createPluginApi(params: CreatePluginApiParams): OpenClawPluginAp
     logger
   })
 
+  // 创建工具运行时
+  const toolRuntime = createToolRuntime(logger)
+  const registeredTools: Map<string, any> = new Map()
+
   return {
     config,
     runtime: runtime || {
       logger,
-      env: {}
+      env: {},
+      channel: runtimeBridge.getChannelRuntime(),
+      reply: runtimeBridge.getReplyRuntime(),
+      streaming: runtimeBridge.getStreamingRuntime(),
+      tool: toolRuntime
     },
     logger,
 
@@ -67,7 +76,8 @@ export function createPluginApi(params: CreatePluginApiParams): OpenClawPluginAp
     },
 
     registerTool: (tool) => {
-      logger.info('[PluginApi] registerTool called (not implemented in Phase 2)')
+      registeredTools.set(tool.id, tool)
+      logger.info(`[PluginApi] Tool registered: ${tool.id} - ${tool.name}`)
     },
 
     registerCli: (fn) => {
