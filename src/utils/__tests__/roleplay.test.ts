@@ -1,17 +1,8 @@
-import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { basename } from 'path'
 import { getRoleplayFilePath, loadRoleplayFile, writeRoleplayFile, getCurrentRoleplayFilePath } from '../roleplay.js'
 import { setCurrentUserId } from '../../bootstrap/state.js'
 import { getFsImplementation } from '../fsOperations.js'
-
-// Mock the settings module
-vi.mock('../settings/settings.js', () => ({
-  isRoleplayEnabled: vi.fn()
-}))
-
-import { isRoleplayEnabled } from '../settings/settings.js'
-
-const mockIsRoleplayEnabled = isRoleplayEnabled as ReturnType<typeof vi.fn>
 
 describe('getRoleplayFilePath', () => {
   test('returns correct path for feishu user', () => {
@@ -42,96 +33,72 @@ describe('loadRoleplayFile', () => {
   const testChannel = 'feishu'
 
   beforeEach(async () => {
-    // Set current user context and mock enabled
+    // Set current user context
     setCurrentUserId(testUserId, testChannel)
-    mockIsRoleplayEnabled.mockReturnValue(true)
   })
 
   afterEach(async () => {
     setCurrentUserId(null, null)
-    vi.clearAllMocks()
   })
 
   test('returns null when file does not exist', async () => {
-    const content = await loadRoleplayFile('nonexistent_user', 'feishu')
+    // Use dependency injection to enable feature
+    const content = await loadRoleplayFile('nonexistent_user', 'feishu', () => true)
     expect(content).toBeNull()
   })
 
   test('returns content when file exists', async () => {
     const testContent = '# Test Role\n\nYou are a test assistant.'
-    await writeRoleplayFile(testContent, testUserId, testChannel)
+    await writeRoleplayFile(testContent, testUserId, testChannel, () => true)
 
-    const content = await loadRoleplayFile(testUserId, testChannel)
+    const content = await loadRoleplayFile(testUserId, testChannel, () => true)
     expect(content).toBe(testContent)
   })
 
   test('returns null when userId is null', async () => {
     setCurrentUserId(null, null)
-    const content = await loadRoleplayFile()
+    const content = await loadRoleplayFile(undefined, undefined, () => true)
     expect(content).toBeNull()
   })
 
   test('trims whitespace from content', async () => {
     const testContent = '  Test content with spaces  \n\n'
-    await writeRoleplayFile(testContent, testUserId, testChannel)
+    await writeRoleplayFile(testContent, testUserId, testChannel, () => true)
 
-    const content = await loadRoleplayFile(testUserId, testChannel)
+    const content = await loadRoleplayFile(testUserId, testChannel, () => true)
     expect(content).toBe('Test content with spaces')
   })
 })
 
 describe('getCurrentRoleplayFilePath', () => {
-  beforeEach(() => {
-    mockIsRoleplayEnabled.mockReturnValue(true)
-  })
-
-  afterEach(() => {
-    vi.clearAllMocks()
-  })
-
   test('returns null when userId is null', () => {
     setCurrentUserId(null, null)
-    const path = getCurrentRoleplayFilePath()
+    const path = getCurrentRoleplayFilePath(() => true)
     expect(path).toBeNull()
   })
 
   test('returns path when user context is set', () => {
     setCurrentUserId('ou_test', 'feishu')
-    const path = getCurrentRoleplayFilePath()
+    const path = getCurrentRoleplayFilePath(() => true)
     expect(path).toMatch(/\.claude\/roleplay\/feishu_ou_test\.md$/)
   })
 })
 
 describe('Feature Toggle', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  afterEach(() => {
-    vi.clearAllMocks()
-  })
-
   test('loadRoleplayFile returns null when disabled', async () => {
-    // Mock feature disabled
-    mockIsRoleplayEnabled.mockReturnValue(false)
-
+    // Use dependency injection to disable feature
     setCurrentUserId('test_user', 'feishu')
-    const content = await loadRoleplayFile('test_user', 'feishu')
+    const content = await loadRoleplayFile('test_user', 'feishu', () => false)
 
     expect(content).toBeNull()
-    expect(isRoleplayEnabled).toHaveBeenCalled()
   })
 
   test('writeRoleplayFile does not write when disabled', async () => {
-    // Mock feature disabled
-    mockIsRoleplayEnabled.mockReturnValue(false)
-
+    // Use dependency injection to disable feature
     setCurrentUserId('test_user', 'feishu')
 
     // Should not throw, just return early
-    await writeRoleplayFile('test content', 'test_user', 'feishu')
-
-    expect(isRoleplayEnabled).toHaveBeenCalled()
+    await writeRoleplayFile('test content', 'test_user', 'feishu', () => false)
 
     // Verify file was not created
     const filePath = getRoleplayFilePath('test_user', 'feishu')
@@ -140,12 +107,10 @@ describe('Feature Toggle', () => {
   })
 
   test('getCurrentRoleplayFilePath returns null when disabled', () => {
-    mockIsRoleplayEnabled.mockReturnValue(false)
-
+    // Use dependency injection to disable feature
     setCurrentUserId('test_user', 'feishu')
-    const path = getCurrentRoleplayFilePath()
+    const path = getCurrentRoleplayFilePath(() => false)
 
     expect(path).toBeNull()
-    expect(isRoleplayEnabled).toHaveBeenCalled()
   })
 })
