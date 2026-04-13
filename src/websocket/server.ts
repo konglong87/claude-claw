@@ -483,6 +483,47 @@ export class ClaudeWebSocketServer {
     // Future: Implement proper tool conversion if needed
     return buildDefaultTools()
   }
+
+  /**
+   * Format response in OpenAI Chat Completions format
+   */
+  private formatOpenAIResponse(
+    content: string,
+    sessionId: string,
+    model: string,
+    usage?: any,
+    toolCalls?: any[]
+  ): object {
+    const timestamp = Math.floor(Date.now() / 1000)
+
+    const message: any = {
+      role: 'assistant'
+    }
+
+    if (toolCalls && toolCalls.length > 0) {
+      message.content = null
+      message.tool_calls = toolCalls
+    } else {
+      message.content = content
+    }
+
+    return {
+      id: sessionId,
+      object: 'chat.completion',
+      created: timestamp,
+      model: model,
+      choices: [{
+        index: 0,
+        message: message,
+        finish_reason: toolCalls && toolCalls.length > 0 ? 'tool_calls' : 'stop'
+      }],
+      usage: {
+        prompt_tokens: usage?.input || 0,
+        completion_tokens: usage?.output || 0,
+        total_tokens: (usage?.input || 0) + (usage?.output || 0)
+      }
+    }
+  }
 }
 
 // ========== 启动服务器 ==========
