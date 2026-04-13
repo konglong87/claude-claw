@@ -86,10 +86,10 @@ export class ClaudeWebSocketServer {
   /**
    * 处理HTTP请求
    */
-  private handleHttpRequest(
+  private async handleHttpRequest(
     req: IncomingMessage,
     res: ReturnType<typeof createServer>['response']
-  ): void {
+  ): Promise<void> {
     // CORS支持
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -124,6 +124,12 @@ export class ClaudeWebSocketServer {
           p => this.config.platforms[p as PlatformType]?.enabled
         )
       }))
+      return
+    }
+
+    // OpenAI Chat Completions API endpoint
+    if (req.url === '/v1/chat/completions' && req.method === 'POST') {
+      await this.handleOpenAIRequest(req, res)
       return
     }
 
