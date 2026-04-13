@@ -26,6 +26,7 @@ import {
 import { detectPlatform } from './adapters/types'
 import type { PlatformType } from './protocol/types'
 import { collectQueryResult } from './utils/responseExtractor.js'
+import { buildDefaultTools } from './utils/queryEngineSetup.js'
 import { logError } from '../utils/log.js'
 
 // ========== WebSocket Server ==========
@@ -468,6 +469,19 @@ export class ClaudeWebSocketServer {
     }
 
     return null
+  }
+
+  /**
+   * Convert OpenAI tools to QueryEngine format
+   * For MVP: Use default tools (Bash, FileEdit, etc.)
+   */
+  private convertOpenAIToolsToQueryEngine(openaiTools: any[]): any {
+    // OpenAI format: {type: "function", function: {name, description, parameters}}
+    // QueryEngine format: Tool objects from src/Tool.ts
+
+    // For MVP: Use default tools from queryEngineSetup.ts
+    // Future: Implement proper tool conversion if needed
+    return buildDefaultTools()
   }
 }
 
