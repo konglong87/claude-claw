@@ -22,14 +22,17 @@ export function getRoleplayFilePath(userId: string, channel: string): string {
  * Load Role-play file content
  * @param userId Optional user ID (defaults to current user)
  * @param channel Optional channel (defaults to current channel)
+ * @param roleplayCheck Optional function to check if feature is enabled (defaults to isRoleplayEnabled)
  * @returns File content or null if disabled/not found
  */
 export async function loadRoleplayFile(
   userId?: string,
-  channel?: string
+  channel?: string,
+  roleplayCheck?: () => boolean
 ): Promise<string | null> {
-  // Feature toggle check
-  if (!isRoleplayEnabled()) {
+  // Feature toggle check - use injected function or default
+  const checkEnabled = roleplayCheck ?? isRoleplayEnabled
+  if (!checkEnabled()) {
     return null
   }
 
@@ -71,14 +74,17 @@ export async function loadRoleplayFile(
  * @param content Role-play content (free-form Markdown)
  * @param userId Optional user ID (defaults to current user)
  * @param channel Optional channel (defaults to current channel)
+ * @param roleplayCheck Optional function to check if feature is enabled (defaults to isRoleplayEnabled)
  */
 export async function writeRoleplayFile(
   content: string,
   userId?: string,
-  channel?: string
+  channel?: string,
+  roleplayCheck?: () => boolean
 ): Promise<void> {
-  // Feature toggle check
-  if (!isRoleplayEnabled()) {
+  // Feature toggle check - use injected function or default
+  const checkEnabled = roleplayCheck ?? isRoleplayEnabled
+  if (!checkEnabled()) {
     logEvent('roleplay_write_disabled', {})
     return
   }
@@ -116,10 +122,15 @@ export async function writeRoleplayFile(
 
 /**
  * Get current user's Role-play file path (convenience function)
+ * @param roleplayCheck Optional function to check if feature is enabled (defaults to isRoleplayEnabled)
  * @returns File path or null if disabled/no user context
  */
-export function getCurrentRoleplayFilePath(): string | null {
-  if (!isRoleplayEnabled()) {
+export function getCurrentRoleplayFilePath(
+  roleplayCheck?: () => boolean
+): string | null {
+  // Feature toggle check - use injected function or default
+  const checkEnabled = roleplayCheck ?? isRoleplayEnabled
+  if (!checkEnabled()) {
     return null
   }
 

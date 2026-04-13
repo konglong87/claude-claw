@@ -1,7 +1,14 @@
-import { describe, test, expect } from 'vitest'
+import { describe, test, expect, beforeEach } from 'vitest'
 import { isRoleplayEnabled } from '../settings/settings.js'
+import { resetSettingsCache, clearPluginSettingsBase } from '../settings/settingsCache.js'
 
 describe('isRoleplayEnabled', () => {
+  beforeEach(() => {
+    // Reset settings cache and plugin settings to avoid test pollution
+    resetSettingsCache()
+    clearPluginSettingsBase()
+  })
+
   test('returns true by default', () => {
     // When roleplayEnabled is not set in any settings source
     // the function should return true (default enabled)

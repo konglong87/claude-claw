@@ -5,7 +5,7 @@
  */
 
 import { WebSocketServer, WebSocket } from 'ws'
-import { createServer, IncomingMessage } from 'http'
+import { createServer, IncomingMessage, ServerResponse } from 'http'
 import { randomUUID } from 'crypto'
 
 // 导入核心组件
@@ -26,6 +26,7 @@ import {
 import { detectPlatform } from './adapters/types'
 import type { PlatformType } from './protocol/types'
 import { collectQueryResult } from './utils/responseExtractor.js'
+import { buildDefaultTools } from './utils/queryEngineSetup.js'
 import { logError } from '../utils/log.js'
 
 // ========== WebSocket Server ==========
@@ -86,10 +87,10 @@ export class ClaudeWebSocketServer {
   /**
    * 处理HTTP请求
    */
-  private handleHttpRequest(
+  private async handleHttpRequest(
     req: IncomingMessage,
     res: ReturnType<typeof createServer>['response']
-  ): void {
+  ): Promise<void> {
     // CORS支持
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -124,6 +125,12 @@ export class ClaudeWebSocketServer {
           p => this.config.platforms[p as PlatformType]?.enabled
         )
       }))
+      return
+    }
+
+    // OpenAI Chat Completions API endpoint
+    if (req.url === '/v1/chat/completions' && req.method === 'POST') {
+      await this.handleOpenAIRequest(req, res)
       return
     }
 
@@ -401,6 +408,375 @@ export class ClaudeWebSocketServer {
     this.server.close(() => {
       console.log('[WebSocket] Server stopped')
       process.exit(0)
+    })
+  }
+
+  /**
+   * Send OpenAI-formatted error response
+   */
+  private sendOpenAIError(
+    res: ServerResponse,
+    statusCode: number,
+    message: string,
+    type: string,
+    code: string
+  ): void {
+    res.writeHead(statusCode, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      error: {
+        message: message,
+        type: type,
+        code: code
+      }
+    }))
+  }
+
+  /**
+   * Extract user content from OpenAI message format
+   * Supports: simple text, multi-content (text + images)
+   */
+  private extractUserContent(message: any): string | null {
+    const content = message.content
+
+    // Format 1: Simple text string
+    if (typeof content === 'string') {
+      return content.trim() || null
+    }
+
+    // Format 2: Array of content blocks (text + images)
+    if (Array.isArray(content)) {
+      const parts: string[] = []
+
+      for (const block of content) {
+        if (block.type === 'text' && block.text) {
+          parts.push(block.text)
+        }
+        else if (block.type === 'image_url' && block.image_url?.url) {
+          const imageUrl = block.image_url.url
+
+          // Handle base64 data URLs
+          if (imageUrl.startsWith('data:image/')) {
+            const base64Data = imageUrl.split(',')[1]
+            if (base64Data) {
+              // Placeholder for images (TODO: pass to QueryEngine when vision supported)
+              parts.push(`[Image: ${base64Data.substring(0, 50)}...]`)
+            }
+          }
+        }
+      }
+
+      return parts.length > 0 ? parts.join('\n') : null
+    }
+
+    return null
+  }
+
+  /**
+   * Convert OpenAI tools to QueryEngine format
+   * For MVP: Use default tools (Bash, FileEdit, etc.)
+   */
+  private convertOpenAIToolsToQueryEngine(openaiTools: any[]): any {
+    // OpenAI format: {type: "function", function: {name, description, parameters}}
+    // QueryEngine format: Tool objects from src/Tool.ts
+
+    // For MVP: Use default tools from queryEngineSetup.ts
+    // Future: Implement proper tool conversion if needed
+    return buildDefaultTools()
+  }
+
+  /**
+   * Format response in OpenAI Chat Completions format
+   */
+  private formatOpenAIResponse(
+    content: string,
+    sessionId: string,
+    model: string,
+    usage?: any,
+    toolCalls?: any[]
+  ): object {
+    const timestamp = Math.floor(Date.now() / 1000)
+
+    const message: any = {
+      role: 'assistant'
+    }
+
+    if (toolCalls && toolCalls.length > 0) {
+      message.content = null
+      message.tool_calls = toolCalls
+    } else {
+      message.content = content
+    }
+
+    return {
+      id: sessionId,
+      object: 'chat.completion',
+      created: timestamp,
+      model: model,
+      choices: [{
+        index: 0,
+        message: message,
+        finish_reason: toolCalls && toolCalls.length > 0 ? 'tool_calls' : 'stop'
+      }],
+      usage: {
+        prompt_tokens: usage?.input || 0,
+        completion_tokens: usage?.output || 0,
+        total_tokens: (usage?.input || 0) + (usage?.output || 0)
+      }
+    }
+  }
+
+  /**
+   * Stream response in OpenAI Server-Sent Events format
+   */
+  private async streamOpenAIResponse(
+    res: ServerResponse,
+    logicalSession: any,
+    userContent: string,
+    sessionId: string,
+    model: string,
+    tools: any
+  ): Promise<void> {
+    // SSE headers
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*'
+    })
+
+    const timestamp = Math.floor(Date.now() / 1000)
+
+    // Send initial chunk (role: assistant)
+    res.write(`data: ${JSON.stringify({
+      id: sessionId,
+      object: 'chat.completion.chunk',
+      created: timestamp,
+      model: model,
+      choices: [{index: 0, delta: {role: 'assistant'}, finish_reason: null}]
+    })}\n\n`)
+
+    try {
+      // Call QueryEngine
+      const generator = logicalSession.queryEngine.submitMessage(userContent, {tools})
+
+      let totalContent = ''
+      let inputTokens = 0
+      let outputTokens = 0
+      let finishReason = 'stop'
+      let toolCalls: any[] = []
+
+      // Stream chunks from QueryEngine
+      for await (const chunk of generator) {
+        // Handle partial_assistant (streaming events)
+        if (chunk.type === 'partial_assistant' && chunk.event) {
+          const event = chunk.event
+
+          // Handle content_block_delta with text_delta
+          if (event.type === 'content_block_delta') {
+            const delta = event.delta
+            if (delta.type === 'text_delta' && delta.text) {
+              totalContent += delta.text
+
+              res.write(`data: ${JSON.stringify({
+                id: sessionId,
+                object: 'chat.completion.chunk',
+                created: timestamp,
+                model: model,
+                choices: [{index: 0, delta: {content: delta.text}, finish_reason: null}]
+              })}\n\n`)
+            }
+            // Handle tool call deltas
+            else if (delta.type === 'input_json_delta' && delta.partial_json) {
+              // Tool call streaming - TODO: format according to OpenAI spec
+              finishReason = 'tool_calls'
+            }
+          }
+
+          // Handle usage info from partial messages
+          if (chunk.partial?.usage) {
+            inputTokens = chunk.partial.usage.input_tokens || 0
+            outputTokens = chunk.partial.usage.output_tokens || 0
+          }
+        }
+
+        // Handle tool_use in assistant message
+        if (chunk.type === 'assistant' && chunk.message?.content) {
+          const content = chunk.message.content
+          for (const block of content) {
+            if (block.type === 'tool_use') {
+              toolCalls.push({
+                id: block.id,
+                type: 'function',
+                function: {
+                  name: block.name,
+                  arguments: JSON.stringify(block.input || {})
+                }
+              })
+            }
+          }
+          if (toolCalls.length > 0) {
+            finishReason = 'tool_calls'
+          }
+        }
+      }
+
+      // Send finish chunk
+      res.write(`data: ${JSON.stringify({
+        id: sessionId,
+        object: 'chat.completion.chunk',
+        created: timestamp,
+        model: model,
+        choices: [{index: 0, delta: {}, finish_reason: finishReason}],
+        usage: {
+          prompt_tokens: inputTokens,
+          completion_tokens: outputTokens,
+          total_tokens: inputTokens + outputTokens
+        }
+      })}\n\n`)
+
+      // Send [DONE]
+      res.write('data: [DONE]\n\n')
+      res.end()
+
+    } catch (error) {
+      console.error('[OpenAI API] Stream error:', error)
+
+      // Send error chunk
+      res.write(`data: ${JSON.stringify({
+        id: sessionId,
+        object: 'chat.completion.chunk',
+        created: timestamp,
+        model: model,
+        choices: [{
+          index: 0,
+          delta: {content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`},
+          finish_reason: 'error'
+        }]
+      })}\n\n`)
+
+      res.write('data: [DONE]\n\n')
+      res.end()
+    }
+  }
+
+  /**
+   * Handle OpenAI Chat Completions API request
+   * Implements: https://platform.openai.com/docs/api-reference/chat/create
+   */
+  private async handleOpenAIRequest(
+    req: IncomingMessage,
+    res: ServerResponse
+  ): Promise<void> {
+    // 1. Optional: Validate API key
+    const configApiKey = this.config.websocket?.api_key
+    if (configApiKey && configApiKey.length > 0) {
+      const authHeader = req.headers['authorization']
+      if (!authHeader || authHeader !== `Bearer ${configApiKey}`) {
+        return this.sendOpenAIError(res, 401,
+          "Invalid API key", "invalid_request_error", "invalid_api_key")
+      }
+    }
+
+    // 2. Parse request body
+    let body = ''
+    req.on('data', chunk => body += chunk)
+    req.on('end', async () => {
+      try {
+        const requestData = JSON.parse(body)
+
+        // 3. Validate required fields
+        if (!requestData.messages || !Array.isArray(requestData.messages)) {
+          return this.sendOpenAIError(res, 400,
+            "messages array is required", "invalid_request_error", "missing_messages")
+        }
+
+        if (requestData.messages.length === 0) {
+          return this.sendOpenAIError(res, 400,
+            "messages array must not be empty", "invalid_request_error", "empty_messages")
+        }
+
+        const lastMessage = requestData.messages[requestData.messages.length - 1]
+        if (lastMessage.role !== 'user') {
+          return this.sendOpenAIError(res, 400,
+            "Last message must have role 'user'", "invalid_request_error", "invalid_last_message_role")
+        }
+
+        // 4. Extract user content
+        const userContent = this.extractUserContent(lastMessage)
+        if (!userContent) {
+          return this.sendOpenAIError(res, 400,
+            "Unable to extract content from user message", "invalid_request_error", "invalid_user_content")
+        }
+
+        // 5. Create temporary LogicalSession
+        const sessionId = `chatcmpl-${randomUUID().replace(/-/g, '').slice(0, 24)}`
+        const logicalSession = sessionManager.createLogicalSession(
+          sessionId, 'openai-user', sessionId, 'private'
+        )
+
+        // 6. Convert tools if provided
+        const tools = requestData.tools
+          ? this.convertOpenAIToolsToQueryEngine(requestData.tools)
+          : buildDefaultTools()
+
+        // 7. Route based on stream flag
+        const stream = requestData.stream === true
+        const model = requestData.model || 'moonshotai/kimi-k2.5'
+
+        if (stream) {
+          await this.streamOpenAIResponse(
+            res, logicalSession, userContent, sessionId, model, tools
+          )
+        } else {
+          // Non-streaming: collect full response
+          const generator = logicalSession.queryEngine.submitMessage(userContent, {tools})
+          let result = ''
+          let usage = {input: 0, output: 0}
+          let toolCalls: any[] = []
+
+          for await (const chunk of generator) {
+            if (chunk.type === 'partial_assistant' && chunk.event?.type === 'content_block_delta') {
+              if (chunk.event.delta?.type === 'text_delta') {
+                result += chunk.event.delta.text || ''
+              }
+            }
+
+            if (chunk.type === 'assistant' && chunk.message?.content) {
+              // Extract tool calls if present
+              for (const block of chunk.message.content) {
+                if (block.type === 'tool_use') {
+                  toolCalls.push({
+                    id: block.id,
+                    type: 'function',
+                    function: {
+                      name: block.name,
+                      arguments: JSON.stringify(block.input)
+                    }
+                  })
+                }
+              }
+            }
+
+            if (chunk.partial?.usage) {
+              usage = chunk.partial.usage
+            }
+          }
+
+          res.writeHead(200, {'Content-Type': 'application/json'})
+          res.end(JSON.stringify(
+            this.formatOpenAIResponse(result, sessionId, model, usage, toolCalls)
+          ))
+
+          // Cleanup session
+          sessionManager.deleteLogicalSession(sessionId)
+        }
+
+      } catch (error) {
+        console.error('[OpenAI API] Error:', error)
+        return this.sendOpenAIError(res, 500,
+          error instanceof Error ? error.message : "Internal error",
+          "internal_error", "internal_error")
+      }
     })
   }
 }
