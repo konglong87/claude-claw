@@ -52,12 +52,35 @@ export class GatewayServer {
         this.handleConnection(ws, req);
       });
 
-      // Health check endpoint
+      // HTTP request handler
       this.server.on('request', (req, res) => {
+        // CORS headers
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+        if (req.method === 'OPTIONS') {
+          res.writeHead(200);
+          res.end();
+          return;
+        }
+
+        // Health check endpoint
         if (req.url === '/health') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ status: 'ok', timestamp: Date.now() }));
+          return;
         }
+
+        // OpenAI Chat Completions API endpoint
+        if (req.url === '/v1/chat/completions' && req.method === 'POST') {
+          this.handleOpenAIRequest(req, res);
+          return;
+        }
+
+        // 404 for other routes
+        res.writeHead(404);
+        res.end('Not Found');
       });
 
       const host = this.config.bind === 'loopback' ? '127.0.0.1' : '0.0.0.0';
@@ -286,5 +309,285 @@ export class GatewayServer {
    */
   getSessionManager(): GatewaySessionManager {
     return this.sessionManager;
+  }
+
+  /**
+   * Handle OpenAI Chat Completions API request
+   */
+  private async handleOpenAIRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    // Parse request body
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const requestData = JSON.parse(body);
+
+        // Validate required fields
+        if (!requestData.messages || !Array.isArray(requestData.messages)) {
+          return this.sendOpenAIError(res, 400, 'messages array is required', 'invalid_request_error', 'missing_messages');
+        }
+
+        if (requestData.messages.length === 0) {
+          return this.sendOpenAIError(res, 400, 'messages array must not be empty', 'invalid_request_error', 'empty_messages');
+        }
+
+        const lastMessage = requestData.messages[requestData.messages.length - 1];
+        if (lastMessage.role !== 'user') {
+          return this.sendOpenAIError(res, 400, 'Last message must have role \'user\'', 'invalid_request_error', 'invalid_last_message_role');
+        }
+
+        // Extract user content
+        const userContent = this.extractUserContent(lastMessage);
+        if (!userContent) {
+          return this.sendOpenAIError(res, 400, 'Unable to extract content from user message', 'invalid_request_error', 'invalid_user_content');
+        }
+
+        // Generate session ID
+        const sessionId = `chatcmpl-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 15)}`;
+        const model = requestData.model || 'moonshotai/kimi-k2.5';
+
+        // Build session context
+        const sessionContext: SessionContext = {
+          sessionId,
+          userId: 'openai-user',
+          chatId: sessionId,
+          platform: 'openai',
+          chatType: 'private',
+        };
+
+        const startTime = Date.now();
+
+        // Check if streaming is requested
+        if (requestData.stream === true) {
+          await this.streamOpenAIResponse(res, sessionContext, userContent, sessionId, model);
+        } else {
+          // Non-streaming response
+          const result = await this.engine.executeCommand(userContent, sessionContext);
+
+          // Format response in OpenAI format
+          const response = {
+            id: sessionId,
+            object: 'chat.completion',
+            created: Math.floor(startTime / 1000),
+            model: model,
+            choices: [{
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: result.text,
+              },
+              finish_reason: 'stop',
+            }],
+            usage: {
+              prompt_tokens: result.usage?.input_tokens || 0,
+              completion_tokens: result.usage?.output_tokens || 0,
+              total_tokens: (result.usage?.input_tokens || 0) + (result.usage?.output_tokens || 0),
+            },
+          };
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(response));
+
+          console.log(`[OpenAI API] Request completed: ${result.duration_ms}ms, ${result.toolCalls} tool calls`);
+        }
+
+        // Clear session after response
+        this.engine.clearSession(sessionId);
+
+      } catch (error) {
+        console.error('[OpenAI API] Error:', error);
+        return this.sendOpenAIError(res, 500,
+          error instanceof Error ? error.message : 'Internal error',
+          'internal_error', 'internal_error');
+      }
+    });
+  }
+
+  /**
+   * Stream OpenAI response in SSE format
+   */
+  private async streamOpenAIResponse(
+    res: http.ServerResponse,
+    sessionContext: SessionContext,
+    userContent: string,
+    sessionId: string,
+    model: string
+  ): Promise<void> {
+    // SSE headers
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*'
+    });
+
+    const timestamp = Math.floor(Date.now() / 1000);
+
+    // Send initial chunk (role: assistant)
+    res.write(`data: ${JSON.stringify({
+      id: sessionId,
+      object: 'chat.completion.chunk',
+      created: timestamp,
+      model: model,
+      choices: [{index: 0, delta: {role: 'assistant'}, finish_reason: null}]
+    })}\n\n`);
+
+    try {
+      // Get QueryEngine from GatewayEngine
+      const engine = this.engine.getOrCreateEngine(sessionContext);
+      const generator = engine.submitMessage(userContent);
+
+      let totalContent = '';
+      let inputTokens = 0;
+      let outputTokens = 0;
+      let finishReason = 'stop';
+
+      // Stream chunks from QueryEngine
+      for await (const chunk of generator) {
+        // Handle partial_assistant (streaming events)
+        if (chunk.type === 'partial_assistant' && chunk.event) {
+          const event = chunk.event;
+
+          // Handle content_block_delta with text_delta
+          if (event.type === 'content_block_delta') {
+            const delta = event.delta;
+            if (delta.type === 'text_delta' && delta.text) {
+              totalContent += delta.text;
+
+              res.write(`data: ${JSON.stringify({
+                id: sessionId,
+                object: 'chat.completion.chunk',
+                created: timestamp,
+                model: model,
+                choices: [{index: 0, delta: {content: delta.text}, finish_reason: null}]
+              })}\n\n`);
+            }
+          }
+
+          // Handle usage info from partial messages
+          if ((chunk as any).partial?.usage) {
+            inputTokens = (chunk as any).partial.usage.input_tokens || 0;
+            outputTokens = (chunk as any).partial.usage.output_tokens || 0;
+          }
+        }
+
+        // Handle assistant message for text content (fallback for non-streaming QueryEngine)
+        if (chunk.type === 'assistant' && (chunk as any).message?.content) {
+          const content = (chunk as any).message.content;
+          for (const block of content) {
+            // Handle text blocks
+            if (block.type === 'text' && block.text) {
+              // Only send if not already streamed via partial_assistant
+              if (!totalContent.includes(block.text)) {
+                totalContent += block.text;
+
+                res.write(`data: ${JSON.stringify({
+                  id: sessionId,
+                  object: 'chat.completion.chunk',
+                  created: timestamp,
+                  model: model,
+                  choices: [{index: 0, delta: {content: block.text}, finish_reason: null}]
+                })}\n\n`);
+              }
+            }
+
+            // Handle tool_use blocks
+            if (block.type === 'tool_use') {
+              finishReason = 'tool_calls';
+            }
+          }
+        }
+
+        // Handle result chunk for usage info
+        if (chunk.type === 'result' && (chunk as any).usage) {
+          inputTokens = (chunk as any).usage.input_tokens || 0;
+          outputTokens = (chunk as any).usage.output_tokens || 0;
+        }
+      }
+
+      // Send finish chunk
+      res.write(`data: ${JSON.stringify({
+        id: sessionId,
+        object: 'chat.completion.chunk',
+        created: timestamp,
+        model: model,
+        choices: [{index: 0, delta: {}, finish_reason: finishReason}],
+        usage: {
+          prompt_tokens: inputTokens,
+          completion_tokens: outputTokens,
+          total_tokens: inputTokens + outputTokens
+        }
+      })}\n\n`);
+
+      // Send [DONE]
+      res.write('data: [DONE]\n\n');
+      res.end();
+
+      console.log(`[OpenAI API] Streaming completed: ${totalContent.length} chars`);
+
+    } catch (error) {
+      console.error('[OpenAI API] Stream error:', error);
+
+      // Send error chunk
+      res.write(`data: ${JSON.stringify({
+        id: sessionId,
+        object: 'chat.completion.chunk',
+        created: timestamp,
+        model: model,
+        choices: [{
+          index: 0,
+          delta: {content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`},
+          finish_reason: 'error'
+        }]
+      })}\n\n`);
+
+      res.write('data: [DONE]\n\n');
+      res.end();
+    }
+  }
+
+  /**
+   * Extract user content from OpenAI message format
+   */
+  private extractUserContent(message: any): string | null {
+    const content = message.content;
+
+    // Simple text string
+    if (typeof content === 'string') {
+      return content.trim() || null;
+    }
+
+    // Array of content blocks
+    if (Array.isArray(content)) {
+      const parts: string[] = [];
+      for (const block of content) {
+        if (block.type === 'text' && block.text) {
+          parts.push(block.text);
+        }
+      }
+      return parts.length > 0 ? parts.join('\n') : null;
+    }
+
+    return null;
+  }
+
+  /**
+   * Send OpenAI-formatted error response
+   */
+  private sendOpenAIError(
+    res: http.ServerResponse,
+    statusCode: number,
+    message: string,
+    type: string,
+    code: string
+  ): void {
+    res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: {
+        message,
+        type,
+        code,
+      },
+    }));
   }
 }
