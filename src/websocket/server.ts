@@ -429,6 +429,46 @@ export class ClaudeWebSocketServer {
       }
     }))
   }
+
+  /**
+   * Extract user content from OpenAI message format
+   * Supports: simple text, multi-content (text + images)
+   */
+  private extractUserContent(message: any): string | null {
+    const content = message.content
+
+    // Format 1: Simple text string
+    if (typeof content === 'string') {
+      return content.trim() || null
+    }
+
+    // Format 2: Array of content blocks (text + images)
+    if (Array.isArray(content)) {
+      const parts: string[] = []
+
+      for (const block of content) {
+        if (block.type === 'text' && block.text) {
+          parts.push(block.text)
+        }
+        else if (block.type === 'image_url' && block.image_url?.url) {
+          const imageUrl = block.image_url.url
+
+          // Handle base64 data URLs
+          if (imageUrl.startsWith('data:image/')) {
+            const base64Data = imageUrl.split(',')[1]
+            if (base64Data) {
+              // Placeholder for images (TODO: pass to QueryEngine when vision supported)
+              parts.push(`[Image: ${base64Data.substring(0, 50)}...]`)
+            }
+          }
+        }
+      }
+
+      return parts.length > 0 ? parts.join('\n') : null
+    }
+
+    return null
+  }
 }
 
 // ========== 启动服务器 ==========
