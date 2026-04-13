@@ -5,7 +5,7 @@
  */
 
 import { WebSocketServer, WebSocket } from 'ws'
-import { createServer, IncomingMessage } from 'http'
+import { createServer, IncomingMessage, ServerResponse } from 'http'
 import { randomUUID } from 'crypto'
 
 // 导入核心组件
@@ -408,6 +408,26 @@ export class ClaudeWebSocketServer {
       console.log('[WebSocket] Server stopped')
       process.exit(0)
     })
+  }
+
+  /**
+   * Send OpenAI-formatted error response
+   */
+  private sendOpenAIError(
+    res: ServerResponse,
+    statusCode: number,
+    message: string,
+    type: string,
+    code: string
+  ): void {
+    res.writeHead(statusCode, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      error: {
+        message: message,
+        type: type,
+        code: code
+      }
+    }))
   }
 }
 
