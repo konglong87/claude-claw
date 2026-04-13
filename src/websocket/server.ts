@@ -658,6 +658,127 @@ export class ClaudeWebSocketServer {
       res.end()
     }
   }
+
+  /**
+   * Handle OpenAI Chat Completions API request
+   * Implements: https://platform.openai.com/docs/api-reference/chat/create
+   */
+  private async handleOpenAIRequest(
+    req: IncomingMessage,
+    res: ServerResponse
+  ): Promise<void> {
+    // 1. Optional: Validate API key
+    const configApiKey = this.config.websocket?.api_key
+    if (configApiKey && configApiKey.length > 0) {
+      const authHeader = req.headers['authorization']
+      if (!authHeader || authHeader !== `Bearer ${configApiKey}`) {
+        return this.sendOpenAIError(res, 401,
+          "Invalid API key", "invalid_request_error", "invalid_api_key")
+      }
+    }
+
+    // 2. Parse request body
+    let body = ''
+    req.on('data', chunk => body += chunk)
+    req.on('end', async () => {
+      try {
+        const requestData = JSON.parse(body)
+
+        // 3. Validate required fields
+        if (!requestData.messages || !Array.isArray(requestData.messages)) {
+          return this.sendOpenAIError(res, 400,
+            "messages array is required", "invalid_request_error", "missing_messages")
+        }
+
+        if (requestData.messages.length === 0) {
+          return this.sendOpenAIError(res, 400,
+            "messages array must not be empty", "invalid_request_error", "empty_messages")
+        }
+
+        const lastMessage = requestData.messages[requestData.messages.length - 1]
+        if (lastMessage.role !== 'user') {
+          return this.sendOpenAIError(res, 400,
+            "Last message must have role 'user'", "invalid_request_error", "invalid_last_message_role")
+        }
+
+        // 4. Extract user content
+        const userContent = this.extractUserContent(lastMessage)
+        if (!userContent) {
+          return this.sendOpenAIError(res, 400,
+            "Unable to extract content from user message", "invalid_request_error", "invalid_user_content")
+        }
+
+        // 5. Create temporary LogicalSession
+        const sessionId = `chatcmpl-${randomUUID().replace(/-/g, '').slice(0, 24)}`
+        const logicalSession = sessionManager.createLogicalSession(
+          sessionId, 'openai-user', sessionId, 'private'
+        )
+
+        // 6. Convert tools if provided
+        const tools = requestData.tools
+          ? this.convertOpenAIToolsToQueryEngine(requestData.tools)
+          : buildDefaultTools()
+
+        // 7. Route based on stream flag
+        const stream = requestData.stream === true
+        const model = requestData.model || 'moonshotai/kimi-k2.5'
+
+        if (stream) {
+          await this.streamOpenAIResponse(
+            res, logicalSession, userContent, sessionId, model, tools
+          )
+        } else {
+          // Non-streaming: collect full response
+          const generator = logicalSession.queryEngine.submitMessage(userContent, {tools})
+          let result = ''
+          let usage = {input: 0, output: 0}
+          let toolCalls: any[] = []
+
+          for await (const chunk of generator) {
+            if (chunk.type === 'partial_assistant' && chunk.event?.type === 'content_block_delta') {
+              if (chunk.event.delta?.type === 'text_delta') {
+                result += chunk.event.delta.text || ''
+              }
+            }
+
+            if (chunk.type === 'assistant' && chunk.message?.content) {
+              // Extract tool calls if present
+              for (const block of chunk.message.content) {
+                if (block.type === 'tool_use') {
+                  toolCalls.push({
+                    id: block.id,
+                    type: 'function',
+                    function: {
+                      name: block.name,
+                      arguments: JSON.stringify(block.input)
+                    }
+                  })
+                }
+              }
+            }
+
+            if (chunk.partial?.usage) {
+              usage = chunk.partial.usage
+            }
+          }
+
+          res.writeHead(200, {'Content-Type': 'application/json'})
+          res.end(JSON.stringify(
+            this.formatOpenAIResponse(result, sessionId, model, usage, toolCalls)
+          ))
+
+          // Cleanup session
+          sessionManager.deleteLogicalSession(sessionId)
+        }
+
+      } catch (error) {
+        console.error('[OpenAI API] Error:', error)
+        return this.sendOpenAIError(res, 500,
+          error instanceof Error ? error.message : "Internal error",
+          "internal_error", "internal_error")
+      }
+    })
+  }
 }
 
 // ========== 启动服务器 ==========
