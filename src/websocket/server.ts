@@ -524,6 +524,140 @@ export class ClaudeWebSocketServer {
       }
     }
   }
+
+  /**
+   * Stream response in OpenAI Server-Sent Events format
+   */
+  private async streamOpenAIResponse(
+    res: ServerResponse,
+    logicalSession: any,
+    userContent: string,
+    sessionId: string,
+    model: string,
+    tools: any
+  ): Promise<void> {
+    // SSE headers
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*'
+    })
+
+    const timestamp = Math.floor(Date.now() / 1000)
+
+    // Send initial chunk (role: assistant)
+    res.write(`data: ${JSON.stringify({
+      id: sessionId,
+      object: 'chat.completion.chunk',
+      created: timestamp,
+      model: model,
+      choices: [{index: 0, delta: {role: 'assistant'}, finish_reason: null}]
+    })}\n\n`)
+
+    try {
+      // Call QueryEngine
+      const generator = logicalSession.queryEngine.submitMessage(userContent, {tools})
+
+      let totalContent = ''
+      let inputTokens = 0
+      let outputTokens = 0
+      let finishReason = 'stop'
+      let toolCalls: any[] = []
+
+      // Stream chunks from QueryEngine
+      for await (const chunk of generator) {
+        // Handle partial_assistant (streaming events)
+        if (chunk.type === 'partial_assistant' && chunk.event) {
+          const event = chunk.event
+
+          // Handle content_block_delta with text_delta
+          if (event.type === 'content_block_delta') {
+            const delta = event.delta
+            if (delta.type === 'text_delta' && delta.text) {
+              totalContent += delta.text
+
+              res.write(`data: ${JSON.stringify({
+                id: sessionId,
+                object: 'chat.completion.chunk',
+                created: timestamp,
+                model: model,
+                choices: [{index: 0, delta: {content: delta.text}, finish_reason: null}]
+              })}\n\n`)
+            }
+            // Handle tool call deltas
+            else if (delta.type === 'input_json_delta' && delta.partial_json) {
+              // Tool call streaming - TODO: format according to OpenAI spec
+              finishReason = 'tool_calls'
+            }
+          }
+
+          // Handle usage info from partial messages
+          if (chunk.partial?.usage) {
+            inputTokens = chunk.partial.usage.input_tokens || 0
+            outputTokens = chunk.partial.usage.output_tokens || 0
+          }
+        }
+
+        // Handle tool_use in assistant message
+        if (chunk.type === 'assistant' && chunk.message?.content) {
+          const content = chunk.message.content
+          for (const block of content) {
+            if (block.type === 'tool_use') {
+              toolCalls.push({
+                id: block.id,
+                type: 'function',
+                function: {
+                  name: block.name,
+                  arguments: JSON.stringify(block.input || {})
+                }
+              })
+            }
+          }
+          if (toolCalls.length > 0) {
+            finishReason = 'tool_calls'
+          }
+        }
+      }
+
+      // Send finish chunk
+      res.write(`data: ${JSON.stringify({
+        id: sessionId,
+        object: 'chat.completion.chunk',
+        created: timestamp,
+        model: model,
+        choices: [{index: 0, delta: {}, finish_reason: finishReason}],
+        usage: {
+          prompt_tokens: inputTokens,
+          completion_tokens: outputTokens,
+          total_tokens: inputTokens + outputTokens
+        }
+      })}\n\n`)
+
+      // Send [DONE]
+      res.write('data: [DONE]\n\n')
+      res.end()
+
+    } catch (error) {
+      console.error('[OpenAI API] Stream error:', error)
+
+      // Send error chunk
+      res.write(`data: ${JSON.stringify({
+        id: sessionId,
+        object: 'chat.completion.chunk',
+        created: timestamp,
+        model: model,
+        choices: [{
+          index: 0,
+          delta: {content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`},
+          finish_reason: 'error'
+        }]
+      })}\n\n`)
+
+      res.write('data: [DONE]\n\n')
+      res.end()
+    }
+  }
 }
 
 // ========== 启动服务器 ==========
