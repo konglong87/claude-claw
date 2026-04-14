@@ -102,7 +102,7 @@ export const DEFAULT_CONFIG: WebSocketConfig = {
       windowMs: parseInt(process.env.WS_RATE_WINDOW || '60000'),
       maxRequests: parseInt(process.env.WS_RATE_MAX || '100')
     },
-    commandTimeout: parseInt(process.env.WS_COMMAND_TIMEOUT || '60000'),
+    commandTimeout: parseInt(process.env.WS_COMMAND_TIMEOUT || '300000'), // 5分钟默认超时
     sessionExpireMs: parseInt(process.env.WS_SESSION_EXPIRE || '86400000') // 24小时
   },
 

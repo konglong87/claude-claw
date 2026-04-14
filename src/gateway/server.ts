@@ -120,8 +120,10 @@ export class GatewayServer {
 
   async start(port: number): Promise<void> {
     return new Promise((resolve, reject) => {
-      // Create HTTP server
+      // Create HTTP server with extended timeout (5 minutes)
       this.server = http.createServer();
+      this.server.timeout = 300000; // 5 minutes
+      this.server.keepAliveTimeout = 300000; // 5 minutes
 
       // Create WebSocket server
       this.wss = new WebSocketServer({ server: this.server });

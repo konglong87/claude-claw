@@ -114,14 +114,25 @@ export class FeishuWebSocketClient {
     feishuLog(`[Claude Code] 当前实例ID: ${this.instanceId}`)
 
     return new Promise((resolve, reject) => {
-      this.claudeWs = new WebSocket(this.claudeWsUrl)
+      // 设置连接超时 (30秒)
+      const connectionTimeout = setTimeout(() => {
+        feishuError('[Claude Code] 连接超时 (30s)')
+        reject(new Error('Connection timeout'))
+      }, 30000)
+
+      this.claudeWs = new WebSocket(this.claudeWsUrl, {
+        // 增加握手超时时间到30秒
+        handshakeTimeout: 30000,
+      })
 
       this.claudeWs.on('open', () => {
+        clearTimeout(connectionTimeout)
         feishuLog('[Claude Code] ✅ 已连接')
         resolve()
       })
 
       this.claudeWs.on('error', (error) => {
+        clearTimeout(connectionTimeout)
         feishuError('[Claude Code] WebSocket 错误:', error.message)
         reject(error)
       })

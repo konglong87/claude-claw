@@ -40,7 +40,7 @@ export interface CommandRoute {
 
 export class CommandRouter {
   private routes: CommandRoute[] = []
-  private defaultTimeout = 60000 // 60秒
+  private defaultTimeout = 300000 // 5分钟默认超时
 
   /**
    * 注册命令路由

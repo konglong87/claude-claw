@@ -214,7 +214,7 @@ function getDefaultConfig(): Config {
       host: '0.0.0.0',
       port: 8765,
       max_connections: 1000,
-      command_timeout: 60000,
+      command_timeout: 300000, // 5分钟默认超时
     },
     rate_limit: {
       enabled: true,

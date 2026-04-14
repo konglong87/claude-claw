@@ -124,24 +124,60 @@ class FeishuBotLauncher {
       this.config.channels = {} as any
     }
     // 转换 feishu 配置到 channels.feishu（插件期望的结构）
+    // 注意：OpenClaw Lark 插件使用 camelCase 字段名（appId, appSecret）
     if (this.config.feishu) {
-      // 直接使用顶层 feishu 配置，不经过任何解析
+      feishuLog(`   原始配置: app_id=${this.config.feishu.app_id?.substring(0, 10)}..., app_secret=${this.config.feishu.app_secret ? '已设置' : '未设置'}`)
       const feishuConfig = {
         enabled: this.config.feishu.enabled,
-        app_id: this.config.feishu.app_id,
-        app_secret: this.config.feishu.app_secret,
-        encrypt_key: this.config.feishu.encrypt_key || '',
-        verification_token: this.config.feishu.verification_token || '',
-        connection_mode: this.config.feishu.connection_mode || 'websocket',
-        heartbeat_interval: this.config.feishu.heartbeat_interval || 30000
+        appId: this.config.feishu.app_id,
+        appSecret: this.config.feishu.app_secret,
+        encryptKey: this.config.feishu.encrypt_key || '',
+        verificationToken: this.config.feishu.verification_token || '',
+        domain: 'feishu' as const,
       }
       this.config.channels.feishu = feishuConfig
+      feishuLog(`   转换后配置: channels.feishu.appId=${this.config.channels.feishu.appId?.substring(0, 10)}...`)
+    } else {
+      feishuError('   警告: this.config.feishu 不存在!')
     }
     feishuLog('   ✅ 配置转换完成')
     feishuLog('')
 
-    // 3. 启动 FeishuWebSocketClient（直接连接到 Gateway）
-    feishuLog('3️⃣ 启动 FeishuWebSocketClient...')
+    // 3. 加载 OpenClaw Lark 插件
+    feishuLog('3️⃣ 加载 OpenClaw Lark 插件...')
+    try {
+      // 创建兼容的 WebSocket Server 包装器
+      const wsServerWrapper = {
+        broadcast: (msg: string) => {
+          // GatewayServer 使用 HTTP 接口处理消息，这里我们直接处理
+          feishuLog(`[WS] Broadcast: ${msg.substring(0, 100)}...`)
+        }
+      }
+
+      // 创建插件 API，传入转换后的配置
+      feishuLog(`   传递给插件的配置: channels.feishu.appId=${this.config.channels?.feishu?.appId?.substring(0, 10)}...`)
+      const pluginApi = createPluginApi({
+        config: this.config as any,
+        wsServer: wsServerWrapper as any,
+        logger: {
+          info: (msg: string) => feishuLog(`[Plugin] ${msg}`),
+          error: (msg: string) => feishuError(`[Plugin] ${msg}`),
+          warn: (msg: string) => feishuLog(`[Plugin] ⚠️ ${msg}`),
+          debug: (msg: string) => feishuLog(`[Plugin] 🔍 ${msg}`),
+        }
+      })
+
+      // 加载插件
+      await loadOpenclawLarkPlugin(pluginApi)
+      feishuLog('   ✅ OpenClaw Lark 插件加载成功')
+    } catch (error) {
+      feishuError('   ❌ 插件加载失败:', error)
+      feishuLog('   继续运行（部分功能可能不可用）...')
+    }
+    feishuLog('')
+
+    // 4. 启动 FeishuWebSocketClient（直接连接到 Gateway）
+    feishuLog('4️⃣ 启动 FeishuWebSocketClient...')
     const feishuPort = gatewayPort
     const feishuClient = new FeishuWebSocketClient(
       {
@@ -156,10 +192,10 @@ class FeishuBotLauncher {
     feishuLog(`   ✅ FeishuWebSocketClient 已启动 (连接端口: ${feishuPort})`)
     feishuLog('')
 
-    // 4. 显示连接信息
+    // 5. 显示连接信息
     this.showConnectionInfo()
 
-    // 5. 监听退出信号
+    // 6. 监听退出信号
     const shutdown = () => {
       feishuLog('\n正在关闭服务...')
       gatewayServer.stop()

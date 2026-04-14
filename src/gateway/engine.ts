@@ -115,7 +115,7 @@ export class GatewayEngine {
         isBypassPermissionsModeAvailable: false,
       };
 
-      // Create QueryEngine configuration
+      // Create QueryEngine configuration with extended timeouts
       const config: QueryEngineConfig = {
         cwd: getCwd(),
         tools: [],  // Will be populated by QueryEngine from appState
@@ -131,6 +131,9 @@ export class GatewayEngine {
         },
         readFileCache: fileStateCache,
         abortController: createAbortController(),
+        // Extended timeouts for long-running operations
+        maxTurns: 100, // Allow more turns for complex queries
+        maxBudgetUsd: 10, // Increase budget for longer sessions
       };
 
       const engine = new QueryEngine(config);
