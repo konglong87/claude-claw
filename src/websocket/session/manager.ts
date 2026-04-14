@@ -352,6 +352,56 @@ export class SessionManager {
   }
 
   /**
+   * 创建临时逻辑会话（用于 OpenAI API 等无需 WebSocket client session 的场景）
+   *
+   * 注意：这种会话不会被持久化管理，调用方需要自行清理
+   */
+  createLogicalSession(
+    sessionId: string,
+    userId: string,
+    chatId: string,
+    chatType: 'private' | 'group' = 'private'
+  ): LogicalSession {
+    try {
+      // 创建QueryEngine
+      const queryEngine = new QueryEngine({
+        cwd: getCwd(),
+        tools: buildDefaultTools(),
+        commands: [],
+        mcpClients: [],
+        agents: [],
+        canUseTool: buildCanUseTool(),
+        getAppState: buildGetAppState(),
+        setAppState: buildSetAppState(),
+        readFileCache: buildReadFileCache(),
+        verbose: false,
+        initialMessages: [],
+      })
+
+      const logicalSession: LogicalSession = {
+        sessionId,
+        userId,
+        chatId,
+        chatType,
+        queryEngine,
+        messageHistory: [],
+        lastActivityAt: Date.now(),
+        createdAt: Date.now()
+      }
+
+      console.log(
+        `[SessionManager] Created temporary logical session: ${sessionId}`
+      )
+
+      return logicalSession
+    } catch (error) {
+      logError(error)
+      console.error(`[SessionManager] Failed to create temporary logical session`)
+      throw error
+    }
+  }
+
+  /**
    * 清理超时逻辑会话
    *
    * 超时时间: 24小时无活动

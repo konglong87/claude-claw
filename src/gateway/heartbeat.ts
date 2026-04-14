@@ -15,9 +15,9 @@ export class GatewayHeartbeat {
   private intervalMs: number;
   private timeoutMs: number;
 
-  constructor(intervalMs: number = 15000, timeoutMs: number = 60000) {
-    this.intervalMs = intervalMs;
-    this.timeoutMs = timeoutMs;
+  constructor(intervalMs: number = 30000, timeoutMs: number = 180000) {
+    this.intervalMs = intervalMs;  // 30秒检查间隔
+    this.timeoutMs = timeoutMs;    // 180秒超时（3分钟，足够长）
   }
 
   /**

@@ -1,6 +1,19 @@
 // Gateway WebSocket Server
 // Main server that handles client connections, authentication, and protocol negotiation
 
+// ✅ MACRO polyfill - 开发环境需要手动注入
+if (typeof (globalThis as any).MACRO === 'undefined') {
+  (globalThis as any).MACRO = {
+    VERSION: '1.0.0-dev',
+    BUILD_TIME: new Date().toISOString(),
+    FEEDBACK_CHANNEL: 'https://github.com/anthropics/claude-code/issues',
+    ISSUES_EXPLAINER: 'report the issue at https://github.com/anthropics/claude-code/issues',
+    NATIVE_PACKAGE_URL: 'https://www.npmjs.com/package/@anthropic-ai/claude-code',
+    PACKAGE_URL: 'https://www.npmjs.com/package/claude-code',
+    VERSION_CHANGELOG: 'https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md',
+  }
+}
+
 import WebSocket, { WebSocketServer } from 'ws';
 import http from 'http';
 import { GatewayAuth } from './auth';
@@ -17,6 +30,71 @@ import {
   GatewayPolicy
 } from './protocol';
 import { GatewayConfig } from './config';
+
+/**
+ * Type definitions for SDKMessage chunk handling
+ * These are narrowed types for specific chunk types from QueryEngine
+ */
+
+// Content block delta event from partial_assistant messages
+interface ContentBlockDeltaEvent {
+  type: 'content_block_delta';
+  index: number;
+  delta: {
+    type: 'text_delta' | 'input_json_delta';
+    text?: string;
+    partial_json?: string;
+  };
+}
+
+// Any event type from partial_assistant
+interface StreamEvent {
+  type: string;
+  delta?: {
+    type: string;
+    text?: string;
+    partial_json?: string;
+  };
+  [key: string]: unknown;
+}
+
+// Partial assistant message chunk
+interface PartialAssistantChunk {
+  type: 'partial_assistant';
+  event?: ContentBlockDeltaEvent | StreamEvent;
+  partial?: {
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+    };
+  };
+}
+
+// Assistant message chunk
+interface AssistantChunk {
+  type: 'assistant';
+  message?: {
+    content?: Array<{
+      type: 'text' | 'tool_use';
+      text?: string;
+      id?: string;
+      name?: string;
+      input?: unknown;
+    }>;
+  };
+}
+
+// Result chunk with usage info
+interface ResultChunk {
+  type: 'result';
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+  };
+}
+
+// Union type for all chunk types we handle
+type StreamChunk = PartialAssistantChunk | AssistantChunk | ResultChunk | { type: string; [key: string]: unknown };
 
 export class GatewayServer {
   private wss: WebSocketServer | null = null;
@@ -433,9 +511,8 @@ export class GatewayServer {
     })}\n\n`);
 
     try {
-      // Get QueryEngine from GatewayEngine
-      const engine = this.engine.getOrCreateEngine(sessionContext);
-      const generator = engine.submitMessage(userContent);
+      // Get generator from GatewayEngine using public method
+      const generator = this.engine.getMessageGenerator(sessionContext, userContent);
 
       let totalContent = '';
       let inputTokens = 0;
@@ -445,63 +522,72 @@ export class GatewayServer {
       // Stream chunks from QueryEngine
       for await (const chunk of generator) {
         // Handle partial_assistant (streaming events)
-        if (chunk.type === 'partial_assistant' && chunk.event) {
-          const event = chunk.event;
+        if (chunk.type === 'partial_assistant') {
+          const partialChunk = chunk as PartialAssistantChunk;
+          if (partialChunk.event) {
+            const event = partialChunk.event;
 
-          // Handle content_block_delta with text_delta
-          if (event.type === 'content_block_delta') {
-            const delta = event.delta;
-            if (delta.type === 'text_delta' && delta.text) {
-              totalContent += delta.text;
-
-              res.write(`data: ${JSON.stringify({
-                id: sessionId,
-                object: 'chat.completion.chunk',
-                created: timestamp,
-                model: model,
-                choices: [{index: 0, delta: {content: delta.text}, finish_reason: null}]
-              })}\n\n`);
-            }
-          }
-
-          // Handle usage info from partial messages
-          if ((chunk as any).partial?.usage) {
-            inputTokens = (chunk as any).partial.usage.input_tokens || 0;
-            outputTokens = (chunk as any).partial.usage.output_tokens || 0;
-          }
-        }
-
-        // Handle assistant message for text content (fallback for non-streaming QueryEngine)
-        if (chunk.type === 'assistant' && (chunk as any).message?.content) {
-          const content = (chunk as any).message.content;
-          for (const block of content) {
-            // Handle text blocks
-            if (block.type === 'text' && block.text) {
-              // Only send if not already streamed via partial_assistant
-              if (!totalContent.includes(block.text)) {
-                totalContent += block.text;
+            // Handle content_block_delta with text_delta
+            if (event.type === 'content_block_delta' && event.delta) {
+              const delta = event.delta;
+              if (delta.type === 'text_delta' && delta.text) {
+                totalContent += delta.text;
 
                 res.write(`data: ${JSON.stringify({
                   id: sessionId,
                   object: 'chat.completion.chunk',
                   created: timestamp,
                   model: model,
-                  choices: [{index: 0, delta: {content: block.text}, finish_reason: null}]
+                  choices: [{index: 0, delta: {content: delta.text}, finish_reason: null}]
                 })}\n\n`);
               }
             }
+          }
 
-            // Handle tool_use blocks
-            if (block.type === 'tool_use') {
-              finishReason = 'tool_calls';
+          // Handle usage info from partial messages
+          if (partialChunk.partial?.usage) {
+            inputTokens = partialChunk.partial.usage.input_tokens || 0;
+            outputTokens = partialChunk.partial.usage.output_tokens || 0;
+          }
+        }
+
+        // Handle assistant message for text content (fallback for non-streaming QueryEngine)
+        if (chunk.type === 'assistant') {
+          const assistantChunk = chunk as AssistantChunk;
+          if (assistantChunk.message?.content) {
+            const content = assistantChunk.message.content;
+            for (const block of content) {
+              // Handle text blocks
+              if (block.type === 'text' && block.text) {
+                // Only send if not already streamed via partial_assistant
+                if (!totalContent.includes(block.text)) {
+                  totalContent += block.text;
+
+                  res.write(`data: ${JSON.stringify({
+                    id: sessionId,
+                    object: 'chat.completion.chunk',
+                    created: timestamp,
+                    model: model,
+                    choices: [{index: 0, delta: {content: block.text}, finish_reason: null}]
+                  })}\n\n`);
+                }
+              }
+
+              // Handle tool_use blocks
+              if (block.type === 'tool_use') {
+                finishReason = 'tool_calls';
+              }
             }
           }
         }
 
         // Handle result chunk for usage info
-        if (chunk.type === 'result' && (chunk as any).usage) {
-          inputTokens = (chunk as any).usage.input_tokens || 0;
-          outputTokens = (chunk as any).usage.output_tokens || 0;
+        if (chunk.type === 'result') {
+          const resultChunk = chunk as ResultChunk;
+          if (resultChunk.usage) {
+            inputTokens = resultChunk.usage.input_tokens || 0;
+            outputTokens = resultChunk.usage.output_tokens || 0;
+          }
         }
       }
 
@@ -590,4 +676,32 @@ export class GatewayServer {
       },
     }));
   }
+}
+
+// 启动 Gateway Server（仅在直接运行时）
+if (import.meta.main) {
+  const port = parseInt(process.env.GATEWAY_PORT || '8765');
+  const bindMode = (process.env.GATEWAY_BIND || 'all') as 'loopback' | 'all';
+  const host = bindMode === 'loopback' ? '127.0.0.1' : '0.0.0.0';
+
+  const config: GatewayConfig = {
+    port,
+    bind: bindMode,
+    auth: {
+      token: process.env.GATEWAY_TOKEN,
+      password: process.env.GATEWAY_PASSWORD,
+    },
+    reload: {
+      mode: (process.env.GATEWAY_RELOAD_MODE || 'hybrid') as 'off' | 'hot' | 'restart' | 'hybrid',
+    },
+    heartbeat: {
+      interval: parseInt(process.env.GATEWAY_HEARTBEAT_INTERVAL || '15000'),
+    },
+  };
+
+  const server = new GatewayServer(config);
+  server.start(port);  // ← 传入 port 参数
+
+  console.log(`Gateway WebSocket Server running on ws://${host}:${port}`);
+  console.log(`OpenAI API endpoint: http://${host}:${port}/v1/chat/completions`);
 }

@@ -4,10 +4,11 @@
  */
 
 import type { OpenClawPluginApi, OpenClawConfig, PluginRuntime, PluginLogger } from '../plugin-sdk/core.js'
-import { createToolRuntime, ToolRuntime } from '../plugin-sdk/index.js'
+import { createToolRuntime, ToolRuntime, createConfigRuntime, ConfigRuntime } from '../plugin-sdk/index.js'
 import { getPluginRegistry } from './registry.js'
 import { createRuntimeBridge, RuntimeBridge } from './runtime-bridge.js'
 import type { ClaudeWebSocketServer } from '../websocket/server.js'
+import { convertObjectToCamelCase } from '../utils/case-converter.js'
 
 export interface CreatePluginApiParams {
   config: OpenClawConfig
@@ -28,6 +29,10 @@ export function createPluginApi(params: CreatePluginApiParams): OpenClawPluginAp
 
   // 创建工具运行时
   const toolRuntime = createToolRuntime(logger)
+
+  // 创建配置运行时（加载 OpenClaw 配置）
+  const configRuntime = createConfigRuntime(config)
+
   const registeredTools: Map<string, any> = new Map()
 
   return {
@@ -38,7 +43,8 @@ export function createPluginApi(params: CreatePluginApiParams): OpenClawPluginAp
       channel: runtimeBridge.getChannelRuntime(),
       reply: runtimeBridge.getReplyRuntime(),
       streaming: runtimeBridge.getStreamingRuntime(),
-      tool: toolRuntime
+      tool: toolRuntime,
+      config: configRuntime
     },
     logger,
 
@@ -53,15 +59,20 @@ export function createPluginApi(params: CreatePluginApiParams): OpenClawPluginAp
         const accountIds = plugin.config?.listAccountIds?.(config) || ['default']
         const accountId = accountIds[0]
 
+        // 插件期望配置使用 camelCase 格式 (appId/appSecret)
+        // 需要将 snake_case (app_id/app_secret) 转换为 camelCase
+        const camelCaseConfig = convertObjectToCamelCase(config)
+
         plugin.gateway.startAccount({
-          cfg: config,
+          cfg: camelCaseConfig,
           accountId,
           runtime: {
             logger,
             env: {},
             channel: runtimeBridge.getChannelRuntime(),
             reply: runtimeBridge.getReplyRuntime(),
-            streaming: runtimeBridge.getStreamingRuntime()
+            streaming: runtimeBridge.getStreamingRuntime(),
+            config: configRuntime
           },
           setStatus: (status) => {
             logger.info(`[PluginApi] Gateway status: ${JSON.stringify(status)}`)

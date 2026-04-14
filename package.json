@@ -41,6 +41,8 @@
     "stop-bot": "bash scripts/stop-bot.sh",
     "restart-bot": "bash scripts/restart-bot.sh",
     "feishu-bot": "bun run src/feishu-bot.ts",
+    "stop-feishu-bot": "bash scripts/stop-feishu-bot.sh",
+    "restart-feishu-bot": "bash scripts/restart-feishu-bot.sh",
     "dingtalk-bot": "bun run src/dingtalk-bot.ts",
     "wechat-bot": "bun run src/wechat-bot.ts",
     "prepublishOnly": "bun run build",

@@ -356,7 +356,10 @@ export class FeishuWebSocketClient {
         }
       })
 
-      // 检查响应
+      // 检查响应 - 打印完整响应数据
+      feishuLog(`[飞书] API 响应: code=${response.code}, msg=${response.msg || 'unknown'}`)
+      feishuLog(`[飞书] API 响应数据: ${JSON.stringify(response.data, null, 2)}`)
+
       if (response.code !== 0) {
         feishuError(`[飞书] 消息回复失败: code=${response.code}, msg=${response.msg || 'unknown'}`)
 

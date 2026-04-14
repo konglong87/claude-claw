@@ -22,6 +22,7 @@ export type PluginRuntime = {
   env: RuntimeEnv
   channel?: any  // ChannelRuntime for message handling
   reply?: any    // ReplyRuntime for sending replies
+  config?: any   // ConfigRuntime for loading OpenClaw config
 }
 
 export type PluginLogger = {

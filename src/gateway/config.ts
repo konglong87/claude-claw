@@ -170,8 +170,22 @@ export async function loadConfig(configPath: string = 'config.yaml'): Promise<Ap
 
 /**
  * Convert Feishu config from snake_case (YAML) to camelCase (plugin)
+ * Handles both object format and array format (channels.feishu can be an array in YAML)
  */
 function convertFeishuConfig(input: Record<string, unknown>): FeishuConfig {
+  // Handle array format: channels.feishu = [{ app_id: ..., app_secret: ..., ... }]
+  if (Array.isArray(input) && input.length > 0) {
+    const first = input[0] as Record<string, unknown>;
+    return {
+      enabled: Boolean(first.enabled),
+      appId: String(first.app_id || first.appId || ''),
+      appSecret: String(first.app_secret || first.appSecret || ''),
+      encryptKey: String(first.encrypt_key || first.encryptKey || ''),
+      verificationToken: String(first.verification_token || first.verificationToken || ''),
+      connectionMode: String(first.connection_mode || first.connectionMode || 'websocket'),
+      heartbeatInterval: Number(first.heartbeat_interval || first.heartbeatInterval || 30000)
+    };
+  }
   return {
     enabled: Boolean(input.enabled),
     appId: String(input.app_id || input.appId || ''),

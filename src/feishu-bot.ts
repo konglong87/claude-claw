@@ -103,43 +103,71 @@ class FeishuBotLauncher {
     feishuLog('================================================================')
     feishuLog('')
 
-    // 1. 启动 Claude Code WebSocket Server
-    feishuLog('1️⃣ 启动 Claude Code WebSocket Server...')
-    this.wsServer = new ClaudeWebSocketServer()
-    this.wsServer.start()
-    feishuLog('   ✅ WebSocket Server 已启动')
-    feishuLog('')
-
-    // 2. 创建 Plugin API
-    feishuLog('2️⃣ 创建 PluginHost...')
-    const api = createPluginApi({
-      config: this.config,
-      wsServer: this.wsServer,
-      logger: {
-        info: (msg) => feishuLog(`   ${msg}`),
-        error: (msg) => feishuError(`   ${msg}`),
-        warn: (msg) => feishuLog(`   [WARN] ${msg}`)
-      }
+    // 1. 启动 Gateway Server（替代旧的 WebSocket Server）
+    feishuLog('1️⃣ 启动 Gateway Server...')
+    const { GatewayServer } = await import('./gateway/server.js')
+    const gatewayPort = this.config.websocket.base_port || this.config.ports?.feishu || 8765
+    const gatewayServer = new GatewayServer({
+      port: gatewayPort,
+      bind: 'loopback',
+      auth: {},
+      reload: { mode: 'off' },
+      heartbeat: { interval: 15000 }
     })
-    feishuLog('   ✅ PluginHost 已创建')
+    await gatewayServer.start(gatewayPort)
+    feishuLog(`   ✅ Gateway Server 已启动 (端口: ${gatewayPort})`)
     feishuLog('')
 
-    // 3. 加载 openclaw-lark 插件
-    feishuLog('3️⃣ 加载 openclaw-lark 插件...')
-    try {
-      await loadOpenclawLarkPlugin(api)
-      feishuLog('   ✅ openclaw-lark 插件已加载')
-      feishuLog('')
-    } catch (error) {
-      feishuError(`   ❌ 插件加载失败: ${error}`)
-      return
+    // 2. 转换配置格式（确保 channels.feishu 存在）
+    feishuLog('2️⃣ 转换配置格式...')
+    if (!this.config.channels) {
+      this.config.channels = {} as any
     }
+    // 转换 feishu 配置到 channels.feishu（插件期望的结构）
+    if (this.config.feishu) {
+      // 直接使用顶层 feishu 配置，不经过任何解析
+      const feishuConfig = {
+        enabled: this.config.feishu.enabled,
+        app_id: this.config.feishu.app_id,
+        app_secret: this.config.feishu.app_secret,
+        encrypt_key: this.config.feishu.encrypt_key || '',
+        verification_token: this.config.feishu.verification_token || '',
+        connection_mode: this.config.feishu.connection_mode || 'websocket',
+        heartbeat_interval: this.config.feishu.heartbeat_interval || 30000
+      }
+      this.config.channels.feishu = feishuConfig
+    }
+    feishuLog('   ✅ 配置转换完成')
+    feishuLog('')
+
+    // 3. 启动 FeishuWebSocketClient（直接连接到 Gateway）
+    feishuLog('3️⃣ 启动 FeishuWebSocketClient...')
+    const feishuPort = gatewayPort
+    const feishuClient = new FeishuWebSocketClient(
+      {
+        appId: this.config.feishu.app_id,
+        appSecret: this.config.feishu.app_secret,
+        encryptKey: this.config.feishu.encrypt_key,
+        verificationToken: this.config.feishu.verification_token
+      },
+      `ws://127.0.0.1:${feishuPort}`
+    )
+    await feishuClient.connect()
+    feishuLog(`   ✅ FeishuWebSocketClient 已启动 (连接端口: ${feishuPort})`)
+    feishuLog('')
 
     // 4. 显示连接信息
     this.showConnectionInfo()
 
     // 5. 监听退出信号
-    this.setupShutdown()
+    const shutdown = () => {
+      feishuLog('\n正在关闭服务...')
+      gatewayServer.stop()
+      feishuClient.close()
+      process.exit(0)
+    }
+    process.on('SIGTERM', shutdown)
+    process.on('SIGINT', shutdown)
   }
 
   showConnectionInfo() {

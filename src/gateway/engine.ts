@@ -5,6 +5,36 @@
  * This is the core execution layer that enables AI command processing.
  */
 
+// ✅ MACRO polyfill - 构建时注入的全局变量
+declare global {
+  namespace MACRO {
+    export const VERSION: string
+    export const BUILD_TIME: string
+    export const FEEDBACK_CHANNEL: string
+    export const ISSUES_EXPLAINER: string
+    export const NATIVE_PACKAGE_URL: string
+    export const PACKAGE_URL: string
+    export const VERSION_CHANGELOG: string
+  }
+}
+
+// ✅ 注入 MACRO 全局变量（开发环境 polyfill）
+if (typeof (globalThis as any).MACRO === 'undefined') {
+  (globalThis as any).MACRO = {
+    VERSION: '1.0.0-dev',
+    BUILD_TIME: new Date().toISOString(),
+    FEEDBACK_CHANNEL: 'https://github.com/anthropics/claude-code/issues',
+    ISSUES_EXPLAINER: 'report the issue at https://github.com/anthropics/claude-code/issues',
+    NATIVE_PACKAGE_URL: 'https://www.npmjs.com/package/@anthropic-ai/claude-code',
+    PACKAGE_URL: 'https://www.npmjs.com/package/claude-code',
+    VERSION_CHANGELOG: 'https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md',
+  }
+}
+
+import '../bootstrap/state.js';  // ← 启用全局状态和配置访问（必须在最前）
+import { enableConfigs } from '../utils/config.js';  // ← 启用配置系统
+import { applySafeConfigEnvironmentVariables } from '../utils/managedEnv.js';  // ← 加载环境变量
+
 import { QueryEngine, type QueryEngineConfig } from '../QueryEngine.js';
 import type { Tools, ToolPermissionContext } from '../Tool.js';
 import { getCwd } from '../utils/cwd.js';
@@ -18,7 +48,7 @@ import type { AppState } from '../state/AppStateStore.js';
 import type { Command } from '../commands.js';
 import type { CanUseToolFn } from '../hooks/useCanUseTool.js';
 import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js';
-import { getToolPermissionsFromEnv } from '../utils/permissions/permissionSetup.js';
+import type { SDKMessage } from '../entrypoints/sdk/coreTypes.js';
 
 /**
  * Command execution result
@@ -52,6 +82,10 @@ export class GatewayEngine {
   private sessionStates: Map<string, AppState> = new Map();
 
   constructor() {
+    // 启用配置访问和环境变量（必须在 QueryEngine 初始化前）
+    enableConfigs();
+    applySafeConfigEnvironmentVariables();
+
     console.log('[GatewayEngine] Initialized');
   }
 
@@ -104,6 +138,18 @@ export class GatewayEngine {
     }
 
     return this.sessions.get(sessionId)!;
+  }
+
+  /**
+   * Get the QueryEngine generator for streaming responses
+   * Public method for external streaming access
+   */
+  async *getMessageGenerator(
+    sessionContext: SessionContext,
+    content: string
+  ): AsyncGenerator<SDKMessage, void, unknown> {
+    const engine = this.getOrCreateEngine(sessionContext);
+    yield* engine.submitMessage(content);
   }
 
   /**
