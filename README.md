@@ -7,7 +7,7 @@
 [![Bun](https://img.shields.io/badge/Bun->=1.3.11-black?logo=bun)](https://bun.sh/)
 [![License](https://img.shields.io/badge/License-学习研究仅用-blue.svg)](LICENSE)
 
-**取其精华，去其糟粕，学习研究项目**
+**取其精华，去其糟粕，学习研究claw项目**
 
 [快速开始](#-快速开始) • [核心功能](#-核心功能) • [命令速查](#-命令速查) • [部署指南](#-生产部署)
 
