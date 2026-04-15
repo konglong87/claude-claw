@@ -25,5 +25,28 @@ config.yaml
 
 CLAUDE.md
 
+# 个人开发文件和敏感信息
+AGENTS.md
+SOUL.md
+HEARTBEAT.md
+IDENTITY.md
+TOOLS.md
+USER.md
+config.yaml.backup
+ecosystem.config.cjs
+*.tgz
+package/
+test-*.ts
+start-daemon.sh
+feishu-bot*.log
+.openclaw/
+.clawhub/
+.superpowers/
+.githooks/
+
+# 日志目录
+logs/
+
 
 docs/
+.claude/

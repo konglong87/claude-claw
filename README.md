@@ -312,12 +312,39 @@ wechat:
 
 #### 飞书机器人配置
 
+#### 方式 1: 一键安装（推荐）
+
+```bash
+# 自动完成：扫码 + 获取凭证 + 同步配置
+bun run feishu:install
+```
+
+这个命令会自动完成：
+1. 显示二维码让你扫描
+2. 自动获取 `app_id` 和 `app_secret`
+3. 自动同步到你的 `config.yaml`
+4. 一切就绪，可以直接启动服务
+
+#### 方式 2: 手动配置
+
 1. 访问 [飞书开放平台](https://open.feishu.cn/app)
 2. 创建企业自建应用
 3. 配置权限：`im:message` + `im:message:send_as_bot`
 4. 发布应用
 5. 获取凭证：App ID、App Secret、Verification Token
 6. 配置 WebSocket 长连接，启用事件：`im.message.receive_v1`
+
+#### 方式 3: 从 OpenClaw 同步
+
+如果你已使用 OpenClaw 配置过飞书：
+
+```bash
+# 从 OpenClaw 同步凭证到项目
+bun run feishu:sync
+
+# 启动服务
+bun run feishu-bot
+```
 
 #### 钉钉机器人配置
 
@@ -464,6 +491,21 @@ clawhub:
 1. 验证 App ID 和 App Secret 正确
 2. 检查飞书应用权限配置
 3. 确认 WebSocket 长连接已启用
+4. 检查事件订阅是否包含 `im.message.receive_v1`
+
+#### Q4: 扫码后提示 "device code expired"？
+
+二维码有效期 5 分钟，超时后重新运行 `bun run feishu:install` 即可。
+
+#### Q5: 同步脚本提示 "无法解析 SecretRef"？
+
+OpenClaw 可能使用了加密存储，运行以下命令查看：
+
+```bash
+cat ~/.openclaw/openclaw.json | grep appSecret
+```
+
+同步脚本会自动处理文件引用格式的凭证。
 
 #### Q4: 钉钉机器人无法连接？
 
@@ -524,6 +566,14 @@ clawhub:
 | [微信测试指南](docs/WECHAT_TESTING_GUIDE.md) | 微信配置和测试 |
 | [飞书完整指南](docs/FEISHU_COMPLETE.md) | 飞书配置和使用 |
 | [飞书 WebSocket](docs/FEISHU_WEBSOCKET_GUIDE.md) | 飞书长连接详解 |
+
+### 飞书快捷命令
+
+| 命令 | 说明 |
+|------|------|
+| `bun run feishu:install` | 一键安装 + 配置 |
+| `bun run feishu:sync` | 从 OpenClaw 同步凭证 |
+| `bun run feishu-bot` | 启动飞书机器人 |
 
 ---
 
